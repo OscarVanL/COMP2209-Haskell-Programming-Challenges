@@ -16,17 +16,15 @@ data LamExpr = LamApp LamExpr LamExpr | LamAbs Int LamExpr | LamVar Int deriving
 
 -- convert a let expression to lambda expression
 convertLet :: Expr -> LamExpr
--- replace the definition below with your solution
---convertLet e = (LamVar 0)
-
 --Case where both e1 and e2 are let expressions
 convertLet (Let x (Let x1 e1 e2) (Let x1' e1' e2'))
     | length x == 1 = LamApp (LamAbs (x!!0) (convertLet (Let x1' e1' e2'))) (convertLet (Let x1' e1' e2'))
+    | length x > 1 = LamApp (LamAbs (x!!0) (convertLet (Let x1' e1' e2'))) (prefixAbsChain (tail x) (convertLet (Let x1' e1' e2')))
 
 --Case where e1 is a let expression
 convertLet (Let x (Let x' e1' e2') e2)
     | length x == 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (convertLet (Let x' e1' e2'))
-    | length x > 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (makeAbsChain (tail x) (parseExprToList e1'))
+    | length x > 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (prefixAbsChain (tail x) (convertLet (Let x' e1' e2')))
     where
         e2vars = parseExprToList e2
 
@@ -57,6 +55,10 @@ listToApp (x:xs)
 makeAbsChain :: [Int] -> [Int] -> LamExpr
 makeAbsChain [] a = (listToApp a)
 makeAbsChain (x:xs) a = LamAbs x (makeAbsChain xs a)
+
+prefixAbsChain :: [Int] -> LamExpr -> LamExpr
+prefixAbsChain [] a = (a)
+prefixAbsChain (x:xs) a = LamAbs x (prefixAbsChain xs a)
 
 -- Challenge 2
 -- pretty print a let expression by converting it to a string
