@@ -16,32 +16,11 @@ data LamExpr = LamApp LamExpr LamExpr | LamAbs Int LamExpr | LamVar Int deriving
 
 -- convert a let expression to lambda expression
 convertLet :: Expr -> LamExpr
---Case where both e1 and e2 are let expressions
-convertLet (Let x (Let x1 e1 e2) (Let x1' e1' e2'))
-    | length x == 1 = LamApp (LamAbs (x!!0) (convertLet (Let x1' e1' e2'))) (convertLet (Let x1' e1' e2'))
-    | length x > 1 = LamApp (LamAbs (x!!0) (convertLet (Let x1' e1' e2'))) (prefixAbsChain (tail x) (convertLet (Let x1' e1' e2')))
-
---Case where e1 is a let expression
-convertLet (Let x (Let x' e1' e2') e2)
-    | length x == 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (convertLet (Let x' e1' e2'))
-    | length x > 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (prefixAbsChain (tail x) (convertLet (Let x' e1' e2')))
-    where
-        e2vars = parseExprToList e2
-
---Case where e2 is a let expression
-convertLet (Let x e1 (Let x' e1' e2'))
-    | length x == 1 = LamApp (LamAbs (x!!0) (convertLet (Let x' e1' e2'))) (listToApp e1vars)
-    | length x > 1 = LamApp (LamAbs (x!!0) (convertLet (Let x' e1' e2'))) (makeAbsChain (tail x) (e1vars))
-    where
-        e1vars = parseExprToList e1
-
---Case where neither e1 or e2 are let expressions
-convertLet (Let x e1 e2)
-    | length x == 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (listToApp e1vars)
-    | length x > 1 = LamApp (LamAbs (x!!0) (listToApp e2vars)) (makeAbsChain (tail x) e1vars)
-    where 
-        e1vars = parseExprToList e1
-        e2vars = parseExprToList e2
+convertLet e
+    | (Let x (Let x1 e1 e2) (Let x1' e1' e2')) <- e = LamApp (LamAbs (x!!0) (convertLet (Let x1' e1' e2'))) (prefixAbsChain (tail x) (convertLet (Let x1' e1' e2')))
+    | (Let x (Let x1' e1' e2') e2) <- e             = LamApp (LamAbs (x!!0) (listToApp (parseExprToList e2))) (prefixAbsChain (tail x) (convertLet (Let x1' e1' e2')))
+    | (Let x e1 (Let x' e1' e2')) <- e              = LamApp (LamAbs (x!!0) (convertLet (Let x' e1' e2'))) (makeAbsChain (tail x) (parseExprToList e1))
+    | (Let x e1 e2) <- e                            = LamApp (LamAbs (x!!0) (listToApp (parseExprToList e2))) (makeAbsChain (tail x) (parseExprToList e1))
     
 parseExprToList :: Expr -> [Int]
 parseExprToList (App a b) = (parseExprToList a) ++ (parseExprToList b)
