@@ -4,7 +4,7 @@
 -- THAT YOU MAY NOT CHANGE THE FUNCTION TYPE SIGNATURES NOR TYPE DEFINITIONS 
 -- This module statement makes public only the specified functions and types
 -- DO NOT CHANGE THIS LIST OF EXPORTED FUNCTIONS AND TYPES
-module Challenges (convertLet, prettyPrint, parseLet, countReds, compileArith, reductionscbn, eval1cbn, tracecbn, makeAbsChain, parseExprToList,
+module Challenges (convertLet, prettyPrint, parseLet, countReds, compileArith, parseListToString,
     Expr(App, Let, Var), LamExpr(LamApp, LamAbs, LamVar)) where
 
 import Data.Char
@@ -43,7 +43,32 @@ prefixAbsChain (x:xs) a = LamAbs x (prefixAbsChain xs a)
 -- pretty print a let expression by converting it to a string
 prettyPrint :: Expr -> String
 -- replace the definition below with your solution
-prettyPrint e = ""
+prettyPrint e
+    --Handles all permetations of lets
+    | (Let x (Let x1 e1 e2) (Let x1' e1' e2')) <- e = "let " ++ parseListToString x ++ " = " ++ prettyPrint (Let x1 e1 e2) ++ " in " ++ prettyPrint (Let x1' e1' e2')
+    | (Let x (Let x1' e1' e2') e2) <- e             = "let " ++ parseListToString x ++ " = " ++ prettyPrint (Let x1' e1' e2') ++ " in " ++ prettyPrint e2
+    | (Let x e1 (Let x' e1' e2')) <- e              = "let " ++ parseListToString x ++ " = " ++ prettyPrint e1 ++ " in " ++ prettyPrint (Let x' e1' e2')
+    | (Let x e1 e2) <- e                            = "let " ++ parseListToString x ++ " = " ++ prettyPrint e1 ++ " in " ++ prettyPrint e2
+    --Handles all permetations of Apps and Vars
+    | (App x y) <- e                                = parseExprToString (App x y)
+    | (Var x) <- e                                  = "x" ++ (show x)
+
+parseListToString :: [Int] -> String
+parseListToString (x:xs)
+    | length (x:xs) == 0 = ""
+    | length (x:xs) == 1 = "x" ++ (show x)
+    | length (x:xs) > 1  = "x" ++ (show x) ++ " " ++ parseListToString (xs)
+
+parseExprToString :: Expr -> String
+parseExprToString e
+    | (App (App a a') (App b b')) <- e          = "(" ++ parseExprToString (App a a') ++ ") (" ++ parseExprToString (App b b') ++ ")"
+    | (App (Var a) (App b b')) <- e             = parseExprToString (Var a) ++ " (" ++ parseExprToString (App b b') ++ ")"
+    | (App (App a a') (Var b)) <- e             = parseExprToString (App a a') ++ " " ++ parseExprToString (Var b)
+    | (App (Var x) (Var y)) <- e                = parseExprToString (Var x) ++ " " ++ parseExprToString (Var y)
+    | (App (Let x e1 e2) (Var b)) <- e          = "(" ++ prettyPrint (Let x e1 e2) ++ ") " ++ parseExprToString (Var b)
+    | (App (Var a) (Let x e1 e2)) <- e          = parseExprToString (Var a) ++ " (" ++ prettyPrint (Let x e1 e2) ++ ")"
+    | (App (Let x e1 e2) (Let x' e1' e2')) <- e = "(" ++ prettyPrint (Let x e1 e2) ++ ") (" ++ prettyPrint (Let x' e1' e2') ++ ")"
+    | (Var x) <- e                         = "x" ++ (show x)
 
 -- Challenge 3
 -- parse a let expression
