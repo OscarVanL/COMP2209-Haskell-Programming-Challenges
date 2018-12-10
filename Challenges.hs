@@ -4,7 +4,7 @@
 -- THAT YOU MAY NOT CHANGE THE FUNCTION TYPE SIGNATURES NOR TYPE DEFINITIONS 
 -- This module statement makes public only the specified functions and types
 -- DO NOT CHANGE THIS LIST OF EXPORTED FUNCTIONS AND TYPES
-module Challenges (convertLet, prettyPrint, parseLet, countReds, compileArith, parseListToString,
+module Challenges (convertLet, prettyPrint, parseLet, countReds, compileArith,
     Expr(App, Let, Var), LamExpr(LamApp, LamAbs, LamVar)) where
 
 import Data.Char
@@ -42,7 +42,6 @@ prefixAbsChain (x:xs) a = LamAbs x (prefixAbsChain xs a)
 -- Challenge 2
 -- pretty print a let expression by converting it to a string
 prettyPrint :: Expr -> String
--- replace the definition below with your solution
 prettyPrint e
     --Handles all permetations of lets
     | (Let x (Let x1 e1 e2) (Let x1' e1' e2')) <- e = "let " ++ parseListToString x ++ " = " ++ prettyPrint (Let x1 e1 e2) ++ " in " ++ prettyPrint (Let x1' e1' e2')
@@ -73,8 +72,68 @@ parseExprToString e
 -- Challenge 3
 -- parse a let expression
 parseLet :: String -> Maybe Expr
--- replace the definition below with your solution
-parseLet s = Nothing
+parseLet s
+    | parse parseStrToLet s == [] && parse parseStrToApp s == [] && parse parseStrToVar s == [] = Nothing
+    | otherwise = Just (fst $ head $ parse (parseStrToApp <|> parseStrToLet <|> parseStrToVar) s)
+
+--Parser checks let expressions follow correct syntax.
+parseStrToLet :: Parser Expr
+parseStrToLet = do
+    _ <- symbol "let"
+    ints <- parseStrToIntList
+    _ <- symbol "="
+    --Expression can either be App, Var or another Let.
+    e1 <- parseStrToApp <|> parseStrToVar <|> parseStrToLet
+    _ <- symbol "in"
+    e2 <- parseStrToApp <|> parseStrToVar <|> parseStrToLet
+    return (Let ints e1 e2)
+
+--Parser checks for nested app expressions recursively following correct syntax.
+parseStrToApp :: Parser Expr
+parseStrToApp = do
+    e1 <- rmBrackets <|> parseStrToVar
+    e2 <- rmBrackets <|> parseStrToVar
+    ex <- many (parseStrToApp <|> parseStrToVar)
+    formatAppExpr e1 e2 ex
+
+--Removes brackets surrounding a statement
+rmBrackets :: Parser Expr
+rmBrackets = do
+    _ <- space
+    _ <- char '('
+    expr <- parseStrToApp <|> parseStrToLet <|> parseStrToVar
+    _ <- char ')'
+    _ <- space
+    return expr
+
+--Parser checks a var expression following correct syntax.
+parseStrToVar :: Parser Expr
+parseStrToVar = do
+    expr <- parseStrToInt
+    return (Var expr)
+
+--Formats output App Expression according to parsed data.
+formatAppExpr :: Expr -> Expr -> [Expr] -> Parser Expr
+formatAppExpr e1 e2 ex
+    | length ex == 0 = return (App e1 e2)
+    | otherwise      = return (App (App e1 e2) (ex !! 0))
+
+--Retreives integer from a string representation
+parseStrToInt :: Parser Int
+parseStrToInt = do
+    _ <- char 'x'
+    intVar <- nat
+    _ <- space
+    return (intVar)
+
+--Repeatedly applies parseStrToInt 
+parseStrToIntList :: Parser [Int]
+parseStrToIntList = do
+    intList <- many parseStrToInt
+    if (length intList == 0) then return ([]) else do
+        _ <- space
+        tail <- parseStrToIntList
+        return (intList ++ tail)
 
 -- Challenge 4
 -- count reductions using two different strategies 
