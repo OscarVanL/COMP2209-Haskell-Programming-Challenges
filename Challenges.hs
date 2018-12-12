@@ -61,6 +61,8 @@ parseListToString (x:xs)
 parseExprToString :: Expr -> String
 parseExprToString e
     | (App (App a a') (App b b')) <- e          = parseExprToString (App a a') ++ " (" ++ parseExprToString (App b b') ++ ")"
+    | (App (Let x e1 e2) (App a a')) <- e       = "(" ++ prettyPrint (Let x e1 e2) ++ ") (" ++ parseExprToString (App a a') ++ ")"
+    | (App (App a a') (Let x e1 e2)) <- e       = parseExprToString (App a a') ++ " (" ++ prettyPrint (Let x e1 e2) ++ ")"
     | (App (Var a) (App b b')) <- e             = parseExprToString (Var a) ++ " (" ++ parseExprToString (App b b') ++ ")"
     | (App (App a a') (Var b)) <- e             = parseExprToString (App a a') ++ " " ++ parseExprToString (Var b)
     | (App (Var x) (Var y)) <- e                = parseExprToString (Var x) ++ " " ++ parseExprToString (Var y)
@@ -139,21 +141,91 @@ parseStrToIntList = do
 -- count reductions using two different strategies 
 countReds :: LamExpr -> Int -> (Maybe Int, Maybe Int)
 -- replace the definition below with your solution
-countReds e limit = (Nothing, Nothing)
+countReds e limit = (left, right)
+    where 
+        left  = runTimes limit (leftReduce) e 0
+        right = runTimes limit (rightReduce) e 0
 
+runTimes :: Int -> (LamExpr -> LamExpr) -> LamExpr -> Int -> Maybe Int
+runTimes 0 f e count
+    | (isComplete f e) = Just (count)
+    | otherwise = Nothing
+runTimes n f e count
+    | (isComplete f e) = Just (count)
+    | otherwise = runTimes (n-1) f (f e) (count + 1)
 
+isComplete :: (LamExpr -> LamExpr) -> LamExpr -> Bool
+isComplete f e 
+    | e == e' = True
+    | otherwise = False
+    where e' = (f e)
+
+leftReduce :: LamExpr -> LamExpr
+leftReduce (LamVar x) = LamVar x
+leftReduce (LamAbs x e) = LamAbs x (leftReduce e)
+leftReduce (LamApp e1@(LamAbs x e) e2)
+    | e1 == e1' = subst e x e2
+    | otherwise = LamApp e1' e2
+    where e1' = leftReduce e1
+
+leftReduce (LamApp e1 e2)
+    | e1 == e1' = LamApp e1 (leftReduce e2)
+    | otherwise = LamApp e1' e2
+    where e1' = leftReduce e1
+
+rightReduce :: LamExpr -> LamExpr
+rightReduce (LamVar x) = LamVar x
+rightReduce (LamAbs x e) = LamAbs x (leftReduce e)
+
+rightReduce (LamApp e1@(LamAbs x e) e2)
+    | e2 == e2' = subst e x e2
+    | otherwise = LamApp e1 e2'
+    where e2' = rightReduce e2
+
+rightReduce (LamApp e1 e2)
+    | e2 == e2' = LamApp (rightReduce e1) e2
+    | otherwise = LamApp e1 e2'
+    where e2' = rightReduce e2
+
+--This is adapted from the code given to us in Lecture 13's slides. 
 subst :: LamExpr -> Int -> LamExpr -> LamExpr
 subst (LamVar x) y e | x == y = e
 subst (LamVar x) y e | x /= y = LamVar x
 subst (LamAbs x e1) y e |
  x /= y && not (free x e) = LamAbs x (subst e1 y e)
 subst (LamAbs x e1) y e |
-    x /=y && (free x e) = let x' = rename x in
+    x /=y && (free x e) = let x' = rename x y in
             subst (LamAbs x' (subst e1 x (LamVar x'))) y e
 subst (LamAbs x e1) y e | x == y = LamAbs x e1
 subst (LamApp e1 e2) y e = LamApp (subst e1 y e) (subst e2 y e) 
 
+--Borrowed from Lecture 13 slides
+free :: Int -> LamExpr -> Bool
+free x (LamVar y) = x == y
+free x (LamAbs y e) | x == y = False
+free x (LamAbs y e) | x /= y = free x e
+free x (LamApp e1 e2) = (free x e1) || (free x e2)
 
+--'Renames' to the largest of the two expression +1
+rename :: Int -> Int -> Int
+rename x y = (max x y) + 1
+
+--Borrowed from Lecture 13 slides
+eval1cbn :: LamExpr -> LamExpr
+--No reduction
+eval1cbn (LamAbs x e) = (LamAbs x e)
+--Beta reduction
+eval1cbn (LamApp (LamAbs x e1) e2) = subst e1 x e2
+eval1cbn (LamApp e1 e2) = LamApp (eval1cbn e1) e2
+
+--Borrowed from Lecture 13 slides
+tracecbn :: LamExpr -> [ LamExpr ]
+tracecbn = (map fst) . takeWhile (uncurry (/=)) . reductionscbn
+
+--Borrowed from Lecture 13 slides
+reductionscbn :: LamExpr -> [ (LamExpr, LamExpr) ]
+reductionscbn e = [ p | p <- zip evals (tail evals) ]
+    where evals = iterate eval1cbn e
 
 
 
@@ -179,7 +251,6 @@ generateExpression e
     | Just (SectVal (Natural x) (Natural y)) <- e     = LamApp (LamApp (digitToExpr x) (addExpr)) (digitToExpr y)
     | Just (SectVal (SectVal e1 e2) (Natural x)) <- e = LamApp (generateExpression (Just(SectVal e1 e2))) (digitToExpr x)
     | Just (SectVal (SectVal e1 e2) (SectVal e1' e2')) <- e = LamApp (generateExpression (Just(SectVal e1 e2))) (generateExpression (Just(SectVal e1' e2')))
-
 
 ------ All parsing stuff (from String into AritExpt)
 parseArith :: String -> Maybe AritExpr
@@ -257,32 +328,3 @@ recurseDigit n
     | otherwise = (LamVar 2)
 
 addExpr = (LamAbs 1 (LamAbs 2 (LamAbs 3 (LamApp (LamVar 2) (LamApp (LamApp (LamVar 1) (LamVar 2)) (LamVar 3))))))
-
-----------------------------------------------
-
---Borrowed from Lecture 13 slides
-eval1cbn :: LamExpr -> LamExpr
---No reduction
-eval1cbn (LamAbs x e) = (LamAbs x e)
---Beta reduction
-eval1cbn (LamApp (LamAbs x e1) e2) = subst e1 x e2
-eval1cbn (LamApp e1 e2) = LamApp (eval1cbn e1) e2
-
---Borrowed from Lecture 13 slides
-tracecbn :: LamExpr -> [ LamExpr ]
-tracecbn = (map fst) . takeWhile (uncurry (/=)) . reductionscbn
-
---Borrowed from Lecture 13 slides
-reductionscbn :: LamExpr -> [ (LamExpr, LamExpr) ]
-reductionscbn e = [ p | p <- zip evals (tail evals) ]
-    where evals = iterate eval1cbn e
-
-rename :: Int -> Int
-rename x = read ((show x) ++ "0")
-
---Borrowed from Lecture 13 slides
-free :: Int -> LamExpr -> Bool
-free x (LamVar y) = x == y
-free x (LamAbs y e) | x == y = False
-free x (LamAbs y e) | x /= y = free x e
-free x (LamApp e1 e2) = (free x e1) || (free x e2)
