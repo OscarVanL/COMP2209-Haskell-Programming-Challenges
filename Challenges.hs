@@ -8,6 +8,7 @@ module Challenges (convertLet, prettyPrint, parseLet, countReds, compileArith,
     Expr(App, Let, Var), LamExpr(LamApp, LamAbs, LamVar)) where
 
 import Data.Char
+import Data.List
 import Parsing
 
 -- Challenge 1
@@ -17,20 +18,24 @@ data LamExpr = LamApp LamExpr LamExpr | LamAbs Int LamExpr | LamVar Int deriving
 -- convert a let expression to lambda expression
 convertLet :: Expr -> LamExpr
 convertLet e
+    | (App e1 e2) <- e                              = LamApp (convertLet e1) (convertLet e2)
     | (Let x (Let x1 e1 e2) (Let x1' e1' e2')) <- e = LamApp (LamAbs (x!!0) (convertLet (Let x1' e1' e2'))) (prefixAbsChain (tail x) (convertLet (Let x1' e1' e2')))
     | (Let x (Let x1' e1' e2') e2) <- e             = LamApp (LamAbs (x!!0) (listToApp (parseExprToList e2))) (prefixAbsChain (tail x) (convertLet (Let x1' e1' e2')))
     | (Let x e1 (Let x' e1' e2')) <- e              = LamApp (LamAbs (x!!0) (convertLet (Let x' e1' e2'))) (makeAbsChain (tail x) (parseExprToList e1))
     | (Let x e1 e2) <- e                            = LamApp (LamAbs (x!!0) (listToApp (parseExprToList e2))) (makeAbsChain (tail x) (parseExprToList e1))
     
+--Parses App and Var expressions.
 parseExprToList :: Expr -> [Int]
 parseExprToList (App a b) = (parseExprToList a) ++ (parseExprToList b)
 parseExprToList (Var x) = [x]
 
+--Converts a list of integers into a LamApp LamVar chain
 listToApp :: [Int] -> LamExpr
 listToApp (x:xs)
     | length (x:xs) == 1 = LamVar x
     | length (x:xs) > 1 = LamApp (LamVar x) (listToApp xs)
 
+--Creates the chain of lambdas for let expressions with multiple variables before the equals.
 makeAbsChain :: [Int] -> [Int] -> LamExpr
 makeAbsChain [] a = (listToApp a)
 makeAbsChain (x:xs) a = LamAbs x (makeAbsChain xs a)
@@ -52,6 +57,7 @@ prettyPrint e
     | (App x y) <- e                                = parseExprToString (App x y)
     | (Var x) <- e                                  = "x" ++ (show x)
 
+--Converts a list of variables before the equals in the let expressio into a string representation.
 parseListToString :: [Int] -> String
 parseListToString (x:xs)
     | length (x:xs) == 0 = ""
@@ -227,30 +233,30 @@ reductionscbn :: LamExpr -> [ (LamExpr, LamExpr) ]
 reductionscbn e = [ p | p <- zip evals (tail evals) ]
     where evals = iterate eval1cbn e
 
-
-
-
-
-
 -- Challenge 5
 -- compile an arithmetic expression into a lambda calculus equivalent
 
 data AritExpr = Sect (AritExpr) | SectVal (AritExpr) (AritExpr) | Natural (Int) | Add (AritExpr) (AritExpr) | BrackVal (AritExpr) deriving (Show, Eq)
 
 compileArith :: String -> Maybe LamExpr
-compileArith s = Just (generateExpression arithExpr)
-    where
-        arithExpr = parseArith s
+compileArith s
+    | validStringCheck s = Just (generateExpression $ parseArith s)
+    | otherwise = Nothing
+
+validStringCheck :: String -> Bool
+validStringCheck s
+    | "++" `isInfixOf` s = False
+    | length s < 0 = False
+    | otherwise = True
 
 generateExpression :: Maybe AritExpr -> LamExpr
 generateExpression e
-    | Just (Natural x) <- e                           = digitToExpr x
-    | Just (Sect (Natural x)) <- e                    = LamApp (digitToExpr x) (addExpr)
-    | Just (BrackVal (Natural x)) <- e                = digitToExpr x
-    | Just (SectVal (Natural x) (SectVal e1 e2)) <- e = LamApp (LamApp (digitToExpr x) (addExpr)) (generateExpression (Just(SectVal e1 e2)))
-    | Just (SectVal (Natural x) (Natural y)) <- e     = LamApp (LamApp (digitToExpr x) (addExpr)) (digitToExpr y)
-    | Just (SectVal (SectVal e1 e2) (Natural x)) <- e = LamApp (generateExpression (Just(SectVal e1 e2))) (digitToExpr x)
-    | Just (SectVal (SectVal e1 e2) (SectVal e1' e2')) <- e = LamApp (generateExpression (Just(SectVal e1 e2))) (generateExpression (Just(SectVal e1' e2')))
+    | Just (Natural x) <- e              = digitToExpr x
+    | Just (Sect (Natural x)) <- e       = LamApp (digitToExpr x) (succExpr)
+    | Just (BrackVal (Natural x)) <- e   = digitToExpr x
+    | Just (Add e1 e2) <- e              = LamApp (LamApp (generateExpression (Just e1)) (plusExpr)) (generateExpression (Just e2))
+    | Just (SectVal (Natural x) e2) <- e = LamApp (generateExpression (Just (Sect (Natural x)))) (generateExpression (Just e2))
+    | Just (SectVal e1 e2) <- e          = LamApp (generateExpression (Just e1)) (generateExpression (Just e2))
 
 ------ All parsing stuff (from String into AritExpt)
 parseArith :: String -> Maybe AritExpr
@@ -308,9 +314,6 @@ parseStrToSect = do
     _ <- char ')'
     return (Sect (sect))
 
-hasContents :: String -> Bool
-hasContents s = (length s > 0)
-
 --0 = (\x -> (\y -> y))
 --1 = (\x -> (\y -> x y))
 --2 = (\x -> (\y -> x (x y)))
@@ -327,4 +330,7 @@ recurseDigit n
     | n > 0 = (LamApp (LamVar 1) (recurseDigit (n-1)))
     | otherwise = (LamVar 2)
 
-addExpr = (LamAbs 1 (LamAbs 2 (LamAbs 3 (LamApp (LamVar 2) (LamApp (LamApp (LamVar 1) (LamVar 2)) (LamVar 3))))))
+--The Add Expression appended to the end of a digit expression to change it from 1 to (+1).
+succExpr = (LamAbs 1 (LamAbs 2 (LamAbs 3 (LamApp (LamVar 2) (LamApp (LamApp (LamVar 1) (LamVar 2)) (LamVar 3))))))
+--The Plus expression appended between expression in a Value + Value BNF.
+plusExpr = (LamAbs 1 (LamAbs 2 (LamAbs 3 (LamAbs 4 (LamApp (LamApp (LamVar 1) (LamVar 3)) (LamApp (LamApp (LamVar 2) (LamVar 3)) (LamVar 4)))))))
