@@ -60,14 +60,14 @@ parseListToString (x:xs)
 
 parseExprToString :: Expr -> String
 parseExprToString e
-    | (App (App a a') (App b b')) <- e          = "(" ++ parseExprToString (App a a') ++ ") (" ++ parseExprToString (App b b') ++ ")"
+    | (App (App a a') (App b b')) <- e          = parseExprToString (App a a') ++ " (" ++ parseExprToString (App b b') ++ ")"
     | (App (Var a) (App b b')) <- e             = parseExprToString (Var a) ++ " (" ++ parseExprToString (App b b') ++ ")"
     | (App (App a a') (Var b)) <- e             = parseExprToString (App a a') ++ " " ++ parseExprToString (Var b)
     | (App (Var x) (Var y)) <- e                = parseExprToString (Var x) ++ " " ++ parseExprToString (Var y)
     | (App (Let x e1 e2) (Var b)) <- e          = "(" ++ prettyPrint (Let x e1 e2) ++ ") " ++ parseExprToString (Var b)
     | (App (Var a) (Let x e1 e2)) <- e          = parseExprToString (Var a) ++ " (" ++ prettyPrint (Let x e1 e2) ++ ")"
     | (App (Let x e1 e2) (Let x' e1' e2')) <- e = "(" ++ prettyPrint (Let x e1 e2) ++ ") (" ++ prettyPrint (Let x' e1' e2') ++ ")"
-    | (Var x) <- e                         = "x" ++ (show x)
+    | (Var x) <- e                              = "x" ++ (show x)
 
 -- Challenge 3
 -- parse a let expression
@@ -141,12 +141,122 @@ countReds :: LamExpr -> Int -> (Maybe Int, Maybe Int)
 -- replace the definition below with your solution
 countReds e limit = (Nothing, Nothing)
 
+
+subst :: LamExpr -> Int -> LamExpr -> LamExpr
+subst (LamVar x) y e | x == y = e
+subst (LamVar x) y e | x /= y = LamVar x
+subst (LamAbs x e1) y e |
+ x /= y && not (free x e) = LamAbs x (subst e1 y e)
+subst (LamAbs x e1) y e |
+    x /=y && (free x e) = let x' = rename x in
+            subst (LamAbs x' (subst e1 x (LamVar x'))) y e
+subst (LamAbs x e1) y e | x == y = LamAbs x e1
+subst (LamApp e1 e2) y e = LamApp (subst e1 y e) (subst e2 y e) 
+
+
+
+
+
+
+
+
 -- Challenge 5
 -- compile an arithmetic expression into a lambda calculus equivalent
+
+data AritExpr = Sect (AritExpr) | SectVal (AritExpr) (AritExpr) | Natural (Int) | Add (AritExpr) (AritExpr) | BrackVal (AritExpr) deriving (Show, Eq)
+
 compileArith :: String -> Maybe LamExpr
--- replace the definition below with your solution
-compileArith s = Nothing
+compileArith s = Just (generateExpression arithExpr)
+    where
+        arithExpr = parseArith s
+
+generateExpression :: Maybe AritExpr -> LamExpr
+generateExpression e
+    | Just (Natural x) <- e                           = digitToExpr x
+    | Just (Sect (Natural x)) <- e                    = LamApp (digitToExpr x) (addExpr)
+    | Just (BrackVal (Natural x)) <- e                = digitToExpr x
+    | Just (SectVal (Natural x) (SectVal e1 e2)) <- e = LamApp (LamApp (digitToExpr x) (addExpr)) (generateExpression (Just(SectVal e1 e2)))
+    | Just (SectVal (Natural x) (Natural y)) <- e     = LamApp (LamApp (digitToExpr x) (addExpr)) (digitToExpr y)
+    | Just (SectVal (SectVal e1 e2) (Natural x)) <- e = LamApp (generateExpression (Just(SectVal e1 e2))) (digitToExpr x)
+    | Just (SectVal (SectVal e1 e2) (SectVal e1' e2')) <- e = LamApp (generateExpression (Just(SectVal e1 e2))) (generateExpression (Just(SectVal e1' e2')))
+
+
+------ All parsing stuff (from String into AritExpt)
+parseArith :: String -> Maybe AritExpr
+parseArith s
+    | parse (valueStrParser <|> parseStrToSect) s == [] = Nothing
+    | unreadString == "" = Just (aritExpr)
+    | otherwise = Nothing
+    where 
+        parsedArithExpr = parse (valueStrParser <|> parseStrToSect ) s
+        (aritExpr, unreadString) = head parsedArithExpr
+
+valueStrParser :: Parser AritExpr
+valueStrParser = do
+    e1 <- (parseStrToSectVal <|> parseStrToValVal  <|> parseStrToBrackVal <|> parseStrToNat)
+    return e1
+
+--Parses Value = Natural
+parseStrToNat :: Parser AritExpr
+parseStrToNat = do
+    val <- nat
+    return (Natural (val))
+
+--Parses Value = Value "+" Value
+parseStrToValVal :: Parser AritExpr
+parseStrToValVal = do
+    val1 <- (parseStrToNat <|> parseStrToBrackVal <|> parseStrToSectVal)
+    _ <- char '+'
+    val2 <- (parseStrToNat <|> parseStrToBrackVal <|> parseStrToSectVal)
+    return (Add (val1) (val2))
+
+--Parses bracketed values ( Value )
+parseStrToBrackVal :: Parser AritExpr
+parseStrToBrackVal = do
+    _ <- char '('
+    val <- valueStrParser
+    _ <- char ')'
+    return (BrackVal (val))
+
+--Parses Section definition for Value = Section Value
+parseStrToSectVal :: Parser AritExpr
+parseStrToSectVal = do
+    _ <- char '('
+    _ <- char '+'
+    sect <- valueStrParser
+    _ <- char ')'
+    value <- valueStrParser
+    return (SectVal (sect) (value))
     
+--Parses Section definition for ArithExpr = Section
+parseStrToSect :: Parser AritExpr
+parseStrToSect = do
+    _ <- char '('
+    _ <- char '+'
+    sect <- valueStrParser
+    _ <- char ')'
+    return (Sect (sect))
+
+hasContents :: String -> Bool
+hasContents s = (length s > 0)
+
+--0 = (\x -> (\y -> y))
+--1 = (\x -> (\y -> x y))
+--2 = (\x -> (\y -> x (x y)))
+--where x has been replaced by 1 and y has been replaced by 2.
+digitToExpr :: Int -> LamExpr
+digitToExpr n
+    | n > 0  = (LamAbs 1 (LamAbs 2 (recurseDigit n)))
+    | n == 1 = (LamAbs 1 (LamAbs 2 (LamApp (LamVar 1) (LamVar 2))))
+    | n == 0 = (LamAbs 1 (LamAbs 2 (LamVar 2)))
+    
+--Does the recursive bit of encoding a digit.
+recurseDigit :: Int -> LamExpr
+recurseDigit n
+    | n > 0 = (LamApp (LamVar 1) (recurseDigit (n-1)))
+    | otherwise = (LamVar 2)
+
+addExpr = (LamAbs 1 (LamAbs 2 (LamAbs 3 (LamApp (LamVar 2) (LamApp (LamApp (LamVar 1) (LamVar 2)) (LamVar 3))))))
 
 ----------------------------------------------
 
@@ -166,18 +276,6 @@ tracecbn = (map fst) . takeWhile (uncurry (/=)) . reductionscbn
 reductionscbn :: LamExpr -> [ (LamExpr, LamExpr) ]
 reductionscbn e = [ p | p <- zip evals (tail evals) ]
     where evals = iterate eval1cbn e
-
---Borrowed from Lecture 13 slides
-subst :: LamExpr -> Int -> LamExpr -> LamExpr
-subst (LamVar x) y e | x == y = e
-subst (LamVar x) y e | x /= y = LamVar x
-subst (LamAbs x e1) y e |
- x /= y && not (free x e) = LamAbs x (subst e1 y e)
-subst (LamAbs x e1) y e |
-    x /=y && (free x e) = let x' = rename x in
-            subst (LamAbs x' (subst e1 x (LamVar x'))) y e
-subst (LamAbs x e1) y e | x == y = LamAbs x e1
-subst (LamApp e1 e2) y e = LamApp (subst e1 y e) (subst e2 y e) 
 
 rename :: Int -> Int
 rename x = read ((show x) ++ "0")
